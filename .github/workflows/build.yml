@@ -168,7 +168,6 @@ jobs:
 
       - name: Prepare build_script for container
         run: |
-          cp dz_build_script.sh dz_build_script.sh
           chmod +x dz_build_script.sh
 
       - name: Launch DeadZone build on Fly.io
