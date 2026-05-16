@@ -23,6 +23,33 @@ on:
         required: true
         default: "DeadZone_v1"
         type: string
+      ram_variant:
+        description: "Device RAM variant in GB (32 / 64 / 128)"
+        required: false
+        default: "32"
+        type: choice
+        options:
+          - "32"
+          - "64"
+          - "128"
+      vm_cpus:
+        description: "Fly.io VM CPUs"
+        required: true
+        default: "8"
+        type: choice
+        options:
+          - "4"
+          - "8"
+          - "16"
+      vm_memory:
+        description: "Fly.io VM Memory in MB"
+        required: true
+        default: "16384"
+        type: choice
+        options:
+          - "8192"
+          - "16384"
+          - "32768"
       factory_v2:
         description: "Use Factory v2 flow for build-related output types"
         required: true
@@ -107,135 +134,82 @@ on:
         options:
           - "true"
           - "false"
+      telegram_msg_id:
+        description: "Telegram Message ID for Live Updates (set by bot automatically)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  kitchen:
-    name: Build DeadZone package
+  launch_fly_server:
+    name: "DeadZone — ${{ github.event.inputs.device_codename }} (${{ github.event.inputs.ram_variant }}GB RAM) on Fly.io"
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Free disk space
-        run: |
-          echo "=== Disk before ==="
-          df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo rm -rf /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
-          sudo apt-get clean
-          docker rmi $(docker image ls -aq) 2>/dev/null || true
-          echo "=== Disk after ==="
-          df -h /
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            aria2 \
-            unzip \
-            zip \
-            p7zip-full \
-            zstd \
-            brotli \
-            lz4 \
-            jq \
-            file \
-            curl \
-            git \
-            gh \
-            ca-certificates \
-            tar \
-            xz-utils \
-            e2fsprogs \
-            erofs-utils \
-            android-sdk-libsparse-utils
-
-      - name: Setup tools
-        run: |
-          bash core/setup_tools.sh
-
-      - name: Debug tool paths
-        if: always()
-        run: |
-          echo "=== bin/ ==="
-          ls -lah bin || true
-          echo "=== tool paths ==="
-          which payload-dumper-go lpmake lpdump lpdumps lpunpack simg2img img2simg zstd brotli lz4 gh || true
-          echo "=== tool verification log ==="
-          cat logs/tool-verification.log 2>/dev/null || true
-
-      - name: Run DeadZone kitchen
+      - name: Setup Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
         env:
-          BUILD_NAME: ${{ github.event.inputs.build_name }}
-          FS_MODE: ${{ github.event.inputs.fs_mode }}
-          VBMETA_MODE: ${{ github.event.inputs.vbmeta_mode }}
-          PATCH_LEVEL: ${{ github.event.inputs.patch_level }}
-          UPLOAD_PIXELDRAIN: ${{ github.event.inputs.upload_pixeldrain }}
-          NOTIFY_TELEGRAM: ${{ github.event.inputs.notify_telegram }}
-          CREATE_GITHUB_RELEASE: ${{ github.event.inputs.create_github_release }}
-          FACTORY_V2: ${{ github.event.inputs.factory_v2 }}
-          BUILD_PROFILE: ${{ github.event.inputs.profile }}
-          BUILD_VARIANT: ${{ github.event.inputs.variant }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Create GitHub Release placeholder
         run: |
-          chmod +x main.sh core/*.sh bin/* 2>/dev/null || true
-          bash -n main.sh core/*.sh
+          gh release create "${{ github.run_id }}" \
+            --title "DeadZone ${{ github.event.inputs.build_name }} — ${{ github.event.inputs.device_codename }} (${{ github.event.inputs.ram_variant }}GB)" \
+            --notes "Build in progress on Fly.io — started by ${{ github.actor }}" \
+            || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare build_script for container
+        run: |
+          cp dz_build_script.sh dz_build_script.sh
+          chmod +x dz_build_script.sh
+
+      - name: Launch DeadZone build on Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
           DEVICE_HINT="${{ github.event.inputs.device_hint }}"
           if [[ -z "$DEVICE_HINT" ]]; then
             DEVICE_HINT="${{ github.event.inputs.device_codename }}"
           fi
-          ./main.sh \
-            "${{ github.event.inputs.rom_url }}" \
-            "$DEVICE_HINT" \
-            "${{ github.event.inputs.skip_patches }}" \
-            "${{ github.event.inputs.output_type }}" \
-            "${{ github.event.inputs.fs_mode }}" \
-            "${{ github.event.inputs.vbmeta_mode }}" \
-            "${{ github.event.inputs.patch_level }}"
 
-      - name: Output info
-        if: always()
-        run: |
-          echo "=== output/ ==="
-          ls -lh output/ 2>/dev/null || true
-          echo "=== output/images/ ==="
-          ls -lh output/images/ 2>/dev/null || true
-          echo "=== output/logs/ ==="
-          ls -lh output/logs/ 2>/dev/null || true
-          echo "=== output_final/ ==="
-          ls -lh output_final/ 2>/dev/null || true
-          echo "=== partitions.tsv ==="
-          cat partitions.tsv 2>/dev/null || true
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deadzone-${{ github.event.inputs.device_codename }}-failure-logs
-          path: |
-            output/logs/
-            output/manifest/
-            logs/
-            partitions.tsv
-          retention-days: 7
-
-      - name: Upload build artifacts
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deadzone-${{ github.event.inputs.device_codename }}-${{ github.event.inputs.output_type }}
-          path: |
-            output/super.img.zst
-            output/images/super.img
-            output_final/
-            output/logs/
-            output/manifest/
-            partitions.tsv
-          retention-days: 7
+          flyctl machine run . \
+            --app ${{ secrets.FLY_APP_NAME }} \
+            --region ams \
+            --vm-cpu-kind performance \
+            --vm-cpus ${{ github.event.inputs.vm_cpus }} \
+            --vm-memory ${{ github.event.inputs.vm_memory }} \
+            --env ROM_URL="${{ github.event.inputs.rom_url }}" \
+            --env DEVICE_CODENAME="${{ github.event.inputs.device_codename }}" \
+            --env DEVICE_HINT="$DEVICE_HINT" \
+            --env BUILD_NAME="${{ github.event.inputs.build_name }}" \
+            --env RAM_VARIANT="${{ github.event.inputs.ram_variant }}" \
+            --env OUTPUT_TYPE="${{ github.event.inputs.output_type }}" \
+            --env FS_MODE="${{ github.event.inputs.fs_mode }}" \
+            --env VBMETA_MODE="${{ github.event.inputs.vbmeta_mode }}" \
+            --env PATCH_LEVEL="${{ github.event.inputs.patch_level }}" \
+            --env FACTORY_V2="${{ github.event.inputs.factory_v2 }}" \
+            --env BUILD_PROFILE="${{ github.event.inputs.profile }}" \
+            --env BUILD_VARIANT="${{ github.event.inputs.variant }}" \
+            --env SKIP_PATCHES="${{ github.event.inputs.skip_patches }}" \
+            --env UPLOAD_PIXELDRAIN="${{ github.event.inputs.upload_pixeldrain }}" \
+            --env CREATE_GITHUB_RELEASE="${{ github.event.inputs.create_github_release }}" \
+            --env NOTIFY_TELEGRAM="${{ github.event.inputs.notify_telegram }}" \
+            --env TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+            --env TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --env TELEGRAM_GROUP_ID="${{ secrets.TELEGRAM_GROUP_ID }}" \
+            --env TELEGRAM_MSG_ID="${{ github.event.inputs.telegram_msg_id }}" \
+            --env GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
+            --env PIXELDRAIN_API_KEY="${{ secrets.PIXELDRAIN_API_KEY }}" \
+            --env GITHUB_REPOSITORY="${{ github.repository }}" \
+            --env GITHUB_SERVER_URL="${{ github.server_url }}" \
+            --env RUN_ID="${{ github.run_id }}" \
+            --env ACTOR="${{ github.actor }}" \
+            --rm
