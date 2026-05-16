@@ -1,0 +1,10 @@
+codename: zircon
+display_name: Redmi Note 13 Pro+ 5G
+brand: xiaomi
+soc_vendor: mtk
+family_hint: xiaomi_mtk_vab
+layout_policy: detect
+safety:
+  - fail_if_layout_incomplete
+  - fail_if_qti_group_without_lpdump_confirmation
+  - fail_if_dynamic_image_missing_from_manifest

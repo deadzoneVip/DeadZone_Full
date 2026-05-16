@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeadZone Factory v2 Profile",
+  "type": "object",
+  "required": ["name", "patch_level", "actions"],
+  "properties": {
+    "name": { "type": "string" },
+    "variant": { "type": "string" },
+    "patch_level": { "type": "string" },
+    "description": { "type": "string" },
+    "actions": { "type": "array" }
+  }
+}

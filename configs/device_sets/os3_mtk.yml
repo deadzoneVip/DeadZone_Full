@@ -1,0 +1,49 @@
+devices:
+  - codename: zircon
+    display_name: Redmi Note 13 Pro+ 5G
+    soc_vendor: mtk
+    soc_name: Dimensity 7200-Ultra
+    priority: 1
+    status: onboarding
+  - codename: duchamp
+    display_name: Redmi K70E / POCO X6 Pro 5G
+    soc_vendor: mtk
+    soc_name: Dimensity 8300-Ultra
+    priority: 2
+    status: planned
+  - codename: rothko
+    display_name: Redmi K70 Ultra / Xiaomi 14T Pro
+    soc_vendor: mtk
+    soc_name: Dimensity 9300+
+    priority: 3
+    status: planned
+  - codename: rodin
+    display_name: Redmi Turbo 4 / POCO X7 Pro
+    soc_vendor: mtk
+    soc_name: Dimensity 8400-Ultra
+    priority: 4
+    status: planned
+  - codename: malachite
+    display_name: Redmi Note 14 Pro / POCO X7
+    soc_vendor: mtk
+    soc_name: Dimensity 7300-Ultra
+    priority: 5
+    status: planned
+  - codename: corot
+    display_name: Xiaomi 13T Pro / Redmi K60 Ultra
+    soc_vendor: mtk
+    soc_name: Dimensity 9200+
+    priority: 6
+    status: planned
+  - codename: degas
+    display_name: Xiaomi 14T
+    soc_vendor: mtk
+    soc_name: Dimensity 8300-Ultra
+    priority: 7
+    status: planned
+  - codename: obsidian
+    display_name: Redmi Note 14 Pro 4G
+    soc_vendor: mtk
+    soc_name: ""
+    priority: 8
+    status: planned

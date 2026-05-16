@@ -1,0 +1,10 @@
+name: DeadZone_Legend
+patch_level: skeleton
+description: Legend Factory v2 profile placeholder.
+supported_variants:
+  - lite
+  - balanced
+  - performance
+  - extreme
+  - clean
+actions: []

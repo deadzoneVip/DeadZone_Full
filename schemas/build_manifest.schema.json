@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeadZone Factory v2 Build Manifest",
+  "type": "object",
+  "required": ["schema_version", "rom", "device", "super", "profile", "safety"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "rom": {
+      "type": "object",
+      "required": ["source", "package_type", "version", "android_version", "region", "rom_family", "rom_major"],
+      "properties": {
+        "source": { "type": "string" },
+        "package_type": { "type": "string" },
+        "version": { "type": "string" },
+        "android_version": { "type": "string" },
+        "region": { "type": "string" },
+        "rom_family": { "type": "string" },
+        "rom_major": { "type": ["integer", "null"] }
+      }
+    },
+    "device": {
+      "type": "object",
+      "required": ["codename", "brand", "soc_vendor", "family_hint"],
+      "properties": {
+        "codename": { "type": "string" },
+        "brand": { "type": "string" },
+        "soc_vendor": { "type": "string" },
+        "family_hint": { "type": "string" }
+      }
+    },
+    "super": {
+      "type": "object",
+      "required": ["layout_source", "super_image_format", "super_size", "metadata_size", "metadata_slots", "slot_mode", "active_slot", "output_format", "groups", "dynamic_partitions", "physical_images"],
+      "properties": {
+        "layout_source": { "type": "string" },
+        "super_image_format": { "type": "string" },
+        "super_size": { "type": ["integer", "null"] },
+        "metadata_size": { "type": ["integer", "null"] },
+        "metadata_slots": { "type": ["integer", "null"] },
+        "slot_mode": { "type": "string" },
+        "active_slot": { "type": "string" },
+        "output_format": { "type": "string" },
+        "groups": { "type": "array" },
+        "dynamic_partitions": { "type": "array" },
+        "physical_images": { "type": "array" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "required": ["name", "patch_level"],
+      "properties": {
+        "name": { "type": "string" },
+        "patch_level": { "type": "string" }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "required": ["layout_complete", "warnings", "errors"],
+      "properties": {
+        "layout_complete": { "type": "boolean" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

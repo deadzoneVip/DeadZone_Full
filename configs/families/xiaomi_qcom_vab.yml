@@ -1,0 +1,8 @@
+family: xiaomi_qcom_vab
+brand: xiaomi
+soc_vendor: qcom
+super_policy: detect_only
+default_output_format: sparse
+vbmeta_strategy: binary_patch
+vbmeta_mode: 3
+filesystem_policy: preserve

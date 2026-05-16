@@ -1,0 +1,10 @@
+name: DeadZone_Gaming
+patch_level: skeleton
+description: Gaming-oriented Factory v2 profile placeholder.
+supported_variants:
+  - lite
+  - balanced
+  - performance
+  - extreme
+  - clean
+actions: []

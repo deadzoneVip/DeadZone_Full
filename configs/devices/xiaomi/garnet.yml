@@ -1,0 +1,5 @@
+codename: garnet
+brand: xiaomi
+soc_vendor: qcom
+family_hint: xiaomi_qcom_vab
+layout_policy: detect

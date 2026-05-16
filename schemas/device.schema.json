@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeadZone Factory v2 Device Config",
+  "type": "object",
+  "required": ["codename", "brand", "soc_vendor", "family_hint", "layout_policy"],
+  "properties": {
+    "codename": { "type": "string" },
+    "display_name": { "type": "string" },
+    "brand": { "type": "string" },
+    "soc_vendor": { "type": "string" },
+    "family_hint": { "type": "string" },
+    "layout_policy": { "type": "string" },
+    "safety": { "type": "array", "items": { "type": "string" } }
+  }
+}

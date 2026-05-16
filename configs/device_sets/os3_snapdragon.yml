@@ -1,0 +1,112 @@
+devices:
+  - codename: garnet
+    display_name: Redmi Note 13 Pro 5G / POCO X6 5G
+    soc_vendor: qcom
+    soc_name: ""
+    priority: 1
+    status: onboarding
+  - codename: marble
+    display_name: Redmi Note 12 Turbo / POCO F5
+    soc_vendor: qcom
+    priority: 2
+    status: planned
+  - codename: mondrian
+    display_name: Redmi K60 / POCO F5 Pro
+    soc_vendor: qcom
+    priority: 3
+    status: planned
+  - codename: peridot
+    display_name: Redmi Turbo 3 / POCO F6
+    soc_vendor: qcom
+    priority: 4
+    status: planned
+  - codename: vermeer
+    display_name: Redmi K70 / POCO F6 Pro
+    soc_vendor: qcom
+    priority: 5
+    status: planned
+  - codename: fuxi
+    display_name: Xiaomi 13
+    soc_vendor: qcom
+    priority: 6
+    status: planned
+  - codename: nuwa
+    display_name: Xiaomi 13 Pro
+    soc_vendor: qcom
+    priority: 7
+    status: planned
+  - codename: ishtar
+    display_name: Xiaomi 13 Ultra
+    soc_vendor: qcom
+    priority: 8
+    status: planned
+  - codename: houji
+    display_name: Xiaomi 14
+    soc_vendor: qcom
+    priority: 9
+    status: planned
+  - codename: shennong
+    display_name: Xiaomi 14 Pro
+    soc_vendor: qcom
+    priority: 10
+    status: planned
+  - codename: aurora
+    display_name: Xiaomi 14 Ultra
+    soc_vendor: qcom
+    priority: 11
+    status: planned
+  - codename: socrates
+    display_name: Redmi K60 Pro
+    soc_vendor: qcom
+    priority: 12
+    status: planned
+  - codename: manet
+    display_name: Redmi K70 Pro
+    soc_vendor: qcom
+    priority: 13
+    status: planned
+  - codename: dada
+    display_name: Xiaomi 15
+    soc_vendor: qcom
+    priority: 14
+    status: planned
+  - codename: haotian
+    display_name: Xiaomi 15 Pro
+    soc_vendor: qcom
+    priority: 15
+    status: planned
+  - codename: xuanyuan
+    display_name: Xiaomi 15 Ultra
+    soc_vendor: qcom
+    priority: 16
+    status: planned
+  - codename: miro
+    display_name: Redmi K80 Pro / POCO F7 Ultra
+    soc_vendor: qcom
+    priority: 17
+    status: planned
+  - codename: zorn
+    display_name: Redmi K80 / POCO F7 Pro
+    soc_vendor: qcom
+    priority: 18
+    status: planned
+  - codename: amethyst
+    display_name: Redmi Note 14 Pro+
+    soc_vendor: qcom
+    priority: 19
+    status: planned
+  - codename: flourite
+    display_name: Redmi Note 15 Pro+ 5G
+    soc_vendor: qcom
+    priority: 20
+    status: planned
+  - codename: kunzite
+    display_name: Redmi Note 15 5G
+    soc_vendor: qcom
+    priority: 21
+    status: planned
+  - codename: spring
+    display_name: Redmi 15 5G / Redmi Note 15R 5G
+    soc_vendor: qcom
+    priority: 22
+    status: planned
