@@ -60,16 +60,19 @@ on:
       telegram_msg_id:
         required: false
         type: string
+      telegram_chat_id:
+        required: false
+        type: string
 
 jobs:
   launch_fly_server:
-    name: "Launch DeadZone Build on Fly.io"
+    name: "DeadZone — Fly.io Build"
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Flyctl
@@ -80,7 +83,7 @@ jobs:
       - name: Create GitHub Release placeholder
         run: |
           gh release create "${{ github.run_id }}" \
-            --title "DeadZone ${{ github.event.inputs.build_name }} — ${{ github.event.inputs.device_codename }}" \
+            --title "DeadZone ${{ inputs.build_name }} — ${{ inputs.device_codename }}" \
             --notes "Build in progress on Fly.io Cloud Server — started by ${{ github.actor }}" \
             || true
         env:
@@ -92,45 +95,43 @@ jobs:
         run: |
           echo "Waking up Fly.io and detaching so GitHub Actions can exit..."
           
-          DEVICE_HINT="${{ github.event.inputs.device_hint }}"
+          DEVICE_HINT="${{ inputs.device_hint }}"
           if [[ -z "$DEVICE_HINT" ]]; then
-            DEVICE_HINT="${{ github.event.inputs.device_codename }}"
+            DEVICE_HINT="${{ inputs.device_codename }}"
           fi
 
-          nohup flyctl machine run . \
+          flyctl machine run . \
             --app ${{ secrets.FLY_APP_NAME }} \
             --region ams \
             --vm-cpu-kind performance \
-            --vm-cpus ${{ github.event.inputs.vm_cpus }} \
-            --vm-memory ${{ github.event.inputs.vm_memory }} \
-            --env ROM_URL="${{ github.event.inputs.rom_url }}" \
-            --env DEVICE_CODENAME="${{ github.event.inputs.device_codename }}" \
+            --vm-cpus ${{ inputs.vm_cpus }} \
+            --vm-memory ${{ inputs.vm_memory }} \
+            --detach \
+            --restart no \
+            --env ROM_URL="${{ inputs.rom_url }}" \
+            --env DEVICE_CODENAME="${{ inputs.device_codename }}" \
             --env DEVICE_HINT="$DEVICE_HINT" \
-            --env BUILD_NAME="${{ github.event.inputs.build_name }}" \
-            --env RAM_VARIANT="${{ github.event.inputs.ram_variant }}" \
-            --env OUTPUT_TYPE="${{ github.event.inputs.output_type }}" \
-            --env FS_MODE="${{ github.event.inputs.fs_mode }}" \
-            --env VBMETA_MODE="${{ github.event.inputs.vbmeta_mode }}" \
-            --env PATCH_LEVEL="${{ github.event.inputs.patch_level }}" \
-            --env FACTORY_V2="${{ github.event.inputs.factory_v2 }}" \
-            --env BUILD_PROFILE="${{ github.event.inputs.profile }}" \
-            --env BUILD_VARIANT="${{ github.event.inputs.variant }}" \
-            --env SKIP_PATCHES="${{ github.event.inputs.skip_patches }}" \
-            --env UPLOAD_PIXELDRAIN="${{ github.event.inputs.upload_pixeldrain }}" \
-            --env CREATE_GITHUB_RELEASE="${{ github.event.inputs.create_github_release }}" \
-            --env NOTIFY_TELEGRAM="${{ github.event.inputs.notify_telegram }}" \
+            --env BUILD_NAME="${{ inputs.build_name }}" \
+            --env RAM_VARIANT="${{ inputs.ram_variant }}" \
+            --env OUTPUT_TYPE="${{ inputs.output_type }}" \
+            --env FS_MODE="${{ inputs.fs_mode }}" \
+            --env VBMETA_MODE="${{ inputs.vbmeta_mode }}" \
+            --env PATCH_LEVEL="${{ inputs.patch_level }}" \
+            --env FACTORY_V2="${{ inputs.factory_v2 }}" \
+            --env BUILD_PROFILE="${{ inputs.profile }}" \
+            --env BUILD_VARIANT="${{ inputs.variant }}" \
+            --env SKIP_PATCHES="${{ inputs.skip_patches }}" \
+            --env UPLOAD_PIXELDRAIN="${{ inputs.upload_pixeldrain }}" \
+            --env CREATE_GITHUB_RELEASE="${{ inputs.create_github_release }}" \
+            --env NOTIFY_TELEGRAM="${{ inputs.notify_telegram }}" \
             --env TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-            --env TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            --env TELEGRAM_GROUP_ID="${{ secrets.TELEGRAM_GROUP_ID }}" \
-            --env TELEGRAM_MSG_ID="${{ github.event.inputs.telegram_msg_id }}" \
+            --env TELEGRAM_CHAT_ID="${{ inputs.telegram_chat_id }}" \
+            --env TELEGRAM_MSG_ID="${{ inputs.telegram_msg_id }}" \
             --env GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
             --env PIXELDRAIN_API_KEY="${{ secrets.PIXELDRAIN_API_KEY }}" \
             --env GITHUB_REPOSITORY="${{ github.repository }}" \
-            --env GITHUB_SERVER_URL="${{ github.server_url }}" \
             --env RUN_ID="${{ github.run_id }}" \
             --env ACTOR="${{ github.actor }}" \
-            --rm > /tmp/fly_launch.log 2>&1 &
+            --env STORAGE_VARIANT="350"
           
-          # Wait 15 seconds to ensure Fly starts, then GitHub safely exits
-          sleep 15
           echo "Fly.io server is now independent! GitHub Actions will close now."

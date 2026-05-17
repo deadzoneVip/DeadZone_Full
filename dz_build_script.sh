@@ -1,32 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Self Destruct & Cleanup ───────────────────────────────────────────────────
+cleanup() {
+    echo "[$(date '+%H:%M:%S')] Self-destroying Fly machine ${FLY_MACHINE_ID:-unknown}..."
+    if [ -n "${FLY_APP_NAME:-}" ] && [ -n "${FLY_MACHINE_ID:-}" ]; then
+        curl -s -X DELETE "http://_api.internal:4280/v1/apps/${FLY_APP_NAME}/machines/${FLY_MACHINE_ID}?force=true" || true
+    fi
+}
+trap cleanup EXIT
+
 # ── Telegram helpers (Smart Edit/Send) ────────────────────────────────────────
 send_tg() {
     local MSG="$1"
-    local TARGET="${2:-private}"
     
-    if [ -n "${TELEGRAM_MSG_ID:-}" ]; then
-        curl -s --fail \
-          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
+    if [ -n "${TELEGRAM_MSG_ID:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
           -d chat_id="${TELEGRAM_CHAT_ID}" \
           -d message_id="${TELEGRAM_MSG_ID}" \
-          -d text="${MSG}" \
-          -d parse_mode="Markdown" \
-          -d disable_web_page_preview=true > /dev/null 2>&1 || true
-    else
-        curl -s --fail \
-          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-          -d chat_id="${TELEGRAM_CHAT_ID}" \
-          -d text="${MSG}" \
-          -d parse_mode="Markdown" \
-          -d disable_web_page_preview=true > /dev/null 2>&1 || true
-    fi
-
-    if [ "$TARGET" == "all" ] && [ -n "${TELEGRAM_GROUP_ID:-}" ]; then
-        curl -s --fail \
-          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-          -d chat_id="${TELEGRAM_GROUP_ID}" \
           -d text="${MSG}" \
           -d parse_mode="Markdown" \
           -d disable_web_page_preview=true > /dev/null 2>&1 || true
@@ -39,11 +30,6 @@ elapsed_str() {
     local s=$(( secs % 60 ))
     printf '%dm %02ds' "$m" "$s"
 }
-
-cleanup() {
-    echo "[$(date '+%H:%M:%S')] Build script finished — machine will auto-destroy"
-}
-trap cleanup EXIT
 
 for v in ROM_URL DEVICE_CODENAME BUILD_NAME; do
     [ -n "${!v:-}" ] || { echo "ERROR: $v is not set"; exit 1; }
@@ -58,7 +44,7 @@ send_tg "⚙️ *DeadZone Build Status*
 📱 *Device:* \`${DEVICE_CODENAME}\`
 🏷 *Build:* \`${BUILD_NAME}\`
 
-⏳ *Status:* 🔧 Setting up build environment..." "private"
+⏳ *Status:* 🔧 Setting up build environment..."
 
 cd /deadzone
 bash core/setup_tools.sh >> "$LOG_FILE" 2>&1 || true
@@ -73,12 +59,10 @@ export FACTORY_V2="${FACTORY_V2:-false}"
 export BUILD_PROFILE="${BUILD_PROFILE:-}"
 export BUILD_VARIANT="${BUILD_VARIANT:-balanced}"
 export UPLOAD_PIXELDRAIN="${UPLOAD_PIXELDRAIN:-true}"
-export NOTIFY_TELEGRAM="false" # Disable internal bot notifications
+export NOTIFY_TELEGRAM="false" 
 export CREATE_GITHUB_RELEASE="${CREATE_GITHUB_RELEASE:-true}"
 export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 export PIXELDRAIN_API_KEY="${PIXELDRAIN_API_KEY:-}"
-export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-export TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 chmod +x main.sh core/*.sh bin/* 2>/dev/null || true
 
@@ -87,7 +71,7 @@ send_tg "⚙️ *DeadZone Build Status*
 📱 *Device:* \`${DEVICE_CODENAME}\`
 🏷 *Build:* \`${BUILD_NAME}\`
 
-⏳ *Status:* 📥 Launching ROM Kitchen compiler..." "private"
+⏳ *Status:* 📥 Launching ROM Kitchen compiler..."
 
 set +e
 ./main.sh \
@@ -125,7 +109,7 @@ ${SNIPPET}
 \`\`\`"
 
     if [ "$NEW_MSG" != "$LAST_MSG" ]; then
-        send_tg "$NEW_MSG" "private"
+        send_tg "$NEW_MSG"
         LAST_MSG="$NEW_MSG"
     fi
 done
@@ -145,7 +129,7 @@ if [ $EXIT_CODE -ne 0 ]; then
 💻 *Error Log Snippet:*
 \`\`\`text
 ${FAIL_SNIPPET}
-\`\`\`" "all"
+\`\`\`"
     exit 1
 fi
 
@@ -170,4 +154,4 @@ send_tg "🎉 *DeadZone Build & Upload Successful!*
 📦 **Artifact:** \`${OUTPUT_TYPE:-fastboot_zip}\`
 
 🔗 **Download Links:**
-${LINKS}" "all"
+${LINKS}"
