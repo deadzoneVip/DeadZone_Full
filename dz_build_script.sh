@@ -1,92 +1,96 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-# ── Self-destroy on exit ──────────────────────────────────────────────────────
-cleanup() {
-    log "Build script finished — machine will auto-destroy"
-}
-trap cleanup EXIT
-
-# ── Telegram ──────────────────────────────────────────────────────────────────
-tg_edit() {
+# ==============================================================================
+# Telegram Notification Script (Smart Edit/Send) - Adapted from OrangeFox logic
+# ==============================================================================
+send_tg() {
     local MSG="$1"
-    [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]] && return 0
-    if [[ -n "${TELEGRAM_MSG_ID:-}" ]]; then
-        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
-          -d "chat_id=${TELEGRAM_CHAT_ID}" \
-          -d "message_id=${TELEGRAM_MSG_ID}" \
-          -d "parse_mode=Markdown" \
-          -d "disable_web_page_preview=true" \
-          --data-urlencode "text=${MSG}" > /dev/null 2>&1 || true
+    local TARGET="$2"
+    
+    # 1. If TELEGRAM_MSG_ID is provided, edit that specific message (Live updates)
+    if [ -n "${TELEGRAM_MSG_ID}" ]; then
+        curl -s --fail \
+          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
+          -d chat_id="${TELEGRAM_CHAT_ID}" \
+          -d message_id="${TELEGRAM_MSG_ID}" \
+          -d text="${MSG}" \
+          -d parse_mode="Markdown" \
+          -d disable_web_page_preview=true > /dev/null 2>&1 || true
+    else
+        # Fallback: Send a fresh message if build is started manually without bot
+        curl -s --fail \
+          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          -d chat_id="${TELEGRAM_CHAT_ID}" \
+          -d text="${MSG}" \
+          -d parse_mode="Markdown" \
+          -d disable_web_page_preview=true > /dev/null 2>&1 || true
+    fi
+      
+    # 2. Send to group chat only if TARGET is "all" and group ID is set
+    if [ "$TARGET" == "all" ] && [ -n "${TELEGRAM_GROUP_ID}" ]; then
+      curl -s --fail \
+        -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d chat_id="${TELEGRAM_GROUP_ID}" \
+        -d text="${MSG}" \
+        -d parse_mode="Markdown" \
+        -d disable_web_page_preview=true > /dev/null 2>&1 || true
     fi
 }
 
-tg_send() {
-    local MSG="$1"
-    [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]] && return 0
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-      -d "chat_id=${TELEGRAM_CHAT_ID}" \
-      -d "parse_mode=Markdown" \
-      -d "disable_web_page_preview=true" \
-      --data-urlencode "text=${MSG}" > /dev/null 2>&1 || true
+# ── Self-destroy on exit
+cleanup() {
+    echo "[$(date '+%H:%M:%S')] Build script finished — machine will auto-destroy"
 }
+trap cleanup EXIT
 
-elapsed_str() {
-    local secs=$(( $(date +%s) - BUILD_START ))
-    printf '%dm %02ds' "$(( secs/60 ))" "$(( secs%60 ))"
-}
-
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
-
-# ── Validate ──────────────────────────────────────────────────────────────────
+# ── Validations
 for v in ROM_URL DEVICE_CODENAME BUILD_NAME; do
-    [[ -n "${!v:-}" ]] || { echo "ERROR: $v not set"; exit 1; }
+    if [ -z "${!v}" ]; then
+        echo "ERROR: $v not set"
+        exit 1
+    fi
 done
 
 BUILD_START=$(date +%s)
-LOG_FILE="/tmp/dz_build.log"
+LOG_FILE="/tmp/dz_build_progress.log"
 rm -f "$LOG_FILE"
 
-log "=== DeadZone Build Script starting ==="
-log "Device: $DEVICE_CODENAME | Build: $BUILD_NAME"
+# Initial Telegram Status Setup
+send_tg "⚙️ *DeadZone Build Status*
+📱 **Device:** \`${DEVICE_CODENAME}\`
+🏷 **Build:** \`${BUILD_NAME}\`
 
-# ── Status: Setup ─────────────────────────────────────────────────────────────
-tg_edit "⚙️ *DeadZone Build — Live Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
-
-🔧 *Stage:* \`Setting up tools...\`
-⏱ *Elapsed:* \`0m 00s\`"
+⏳ *Status:* 🛠️ Setting up environment & tools..." "private"
 
 cd /deadzone
+
+# Run tools setup and capture to log
 bash core/setup_tools.sh >> "$LOG_FILE" 2>&1 || true
 
-# ── Export env vars ───────────────────────────────────────────────────────────
+# ── Export Environment Variables
 export BUILD_NAME OUTPUT_TYPE FS_MODE VBMETA_MODE PATCH_LEVEL
 export FACTORY_V2="${FACTORY_V2:-false}"
 export BUILD_PROFILE="${BUILD_PROFILE:-}"
 export BUILD_VARIANT="${BUILD_VARIANT:-balanced}"
 export SKIP_PATCHES="${SKIP_PATCHES:-true}"
 export UPLOAD_PIXELDRAIN="${UPLOAD_PIXELDRAIN:-true}"
-export NOTIFY_TELEGRAM="false"
+export NOTIFY_TELEGRAM="false" # Disable native shell notifications to use our bot logic
 export CREATE_GITHUB_RELEASE="${CREATE_GITHUB_RELEASE:-true}"
 export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 export PIXELDRAIN_API_KEY="${PIXELDRAIN_API_KEY:-}"
 
 chmod +x main.sh core/*.sh bin/* 2>/dev/null || true
 
-tg_edit "⚙️ *DeadZone Build — Live Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
+# Update Status to Downloading
+send_tg "⚙️ *DeadZone Build Status*
+📱 **Device:** \`${DEVICE_CODENAME}\`
+🏷 **Build:** \`${BUILD_NAME}\`
 
-📥 *Stage:* \`Downloading ROM OTA zip...\`
-⏱ *Elapsed:* \`$(elapsed_str)\`"
+⏳ *Status:* 📥 Starting ROM Kitchen operations..." "private"
 
-# ── Run build ─────────────────────────────────────────────────────────────────
+# ── Launch Kitchen Process in Background
+set +e
 ./main.sh \
     "${ROM_URL}" \
     "${DEVICE_CODENAME}" \
@@ -96,93 +100,96 @@ tg_edit "⚙️ *DeadZone Build — Live Status*
     "${VBMETA_MODE:-3}" \
     "${PATCH_LEVEL:-none}" \
     >> "$LOG_FILE" 2>&1 &
-
 BUILD_PID=$!
+set -e
+
+# ── Live Build Monitor (Runs while main.sh is active)
 LAST_MSG=""
-
-# ── Live update loop every 10s ────────────────────────────────────────────────
 while kill -0 $BUILD_PID 2>/dev/null; do
-    sleep 10
+    # Extract current stage based on "=== STAGE ===" markers from main.sh logs
+    STAGE=$(grep -o "=== .* ===" "$LOG_FILE" 2>/dev/null | tail -n1 | sed 's/=== //;s/ ===//' || echo "Processing...")
+    
+    # Extract safe terminal snippet (Replace backticks with quotes to preserve Markdown)
+    CONSOLE_SNIPPET=$(tail -n 3 "$LOG_FILE" 2>/dev/null | sed 's/`/"/g; s/\*/-/g; s/[^[:print:]\t]//g' | grep -v "^[[:space:]]*$" | cut -c1-60 || echo "...")
+    
+    # Calculate Time
+    CURRENT_TIME=$(date +%s)
+    ELAPSED=$((CURRENT_TIME - BUILD_START))
+    MINS=$((ELAPSED / 60))
+    SECS=$((ELAPSED % 60))
 
-    STAGE=$(grep -o "=== .* ===" "$LOG_FILE" 2>/dev/null | tail -n1 \
-        | sed 's/=== //;s/ ===//' || echo "Running...")
-
-    # آخر 3 سطور من اللوج
-    LINES=$(tail -n 3 "$LOG_FILE" 2>/dev/null \
-        | sed 's/`/"/g; s/\*/-/g; s/[^[:print:]\t]//g' \
-        | grep -v "^[[:space:]]*$" \
-        | cut -c1-60 \
-        || echo "...")
-
-    ELAPSED=$(elapsed_str)
-
-    NEW_MSG="⚙️ *DeadZone Build — Live Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
+    NEW_MSG="⚙️ *DeadZone Live Build Dashboard*
 📱 *Device:* \`${DEVICE_CODENAME}\`
 🏷 *Build:* \`${BUILD_NAME}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
-⏱ *Elapsed:* \`${ELAPSED}\`
+📦 *Target:* \`${OUTPUT_TYPE:-fastboot_zip}\`
+⏱️ *Elapsed Time:* \`${MINS}m ${SECS}s\`
 
-📊 *Stage:* \`${STAGE}\`
+📊 *Current Stage:* 
+\`> ${STAGE}\`
 
-💻 *Last 3 log lines:*
-\`\`\`
-${LINES}
+💻 *Live Terminal Output:*
+\`\`\`text
+${CONSOLE_SNIPPET}
 \`\`\`"
 
-    if [[ "$NEW_MSG" != "$LAST_MSG" ]]; then
-        tg_edit "$NEW_MSG"
+    # Only send API request if the message actually changed (saves rate limits)
+    if [ "$NEW_MSG" != "$LAST_MSG" ]; then
+        send_tg "$NEW_MSG" "private"
         LAST_MSG="$NEW_MSG"
     fi
+    
+    sleep 5
 done
 
-# ── Check result ──────────────────────────────────────────────────────────────
+# ── Check Completion Results
 wait $BUILD_PID
 EXIT_CODE=$?
-ELAPSED=$(elapsed_str)
 
-if [[ $EXIT_CODE -ne 0 ]]; then
-    FAIL_LOG=$(tail -n 10 "$LOG_FILE" 2>/dev/null \
-        | sed 's/`/"/g; s/[^[:print:]\t]//g' | cut -c1-250)
+# Final Time Calculation
+BUILD_END=$(date +%s)
+BUILD_DIFF=$((BUILD_END - BUILD_START))
+FINAL_MINS=$((BUILD_DIFF / 60))
+FINAL_SECS=$((BUILD_DIFF % 60))
 
-    # Edit live message to show failure
-    tg_edit "❌ *DeadZone Build FAILED*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-⏱ *Total Time:* \`${ELAPSED}\`
+# ── Handle Failure
+if [ $EXIT_CODE -ne 0 ]; then
+    FAILED_LOG=$(tail -n 25 "$LOG_FILE" 2>/dev/null | sed 's/`/"/g; s/[^[:print:]\t]//g' | cut -c1-200)
+    send_tg "❌ *DeadZone Build Failed!*
+An error occurred during ROM modification.
 
-💻 *Error:*
-\`\`\`
-${FAIL_LOG}
-\`\`\`"
-    log "Build FAILED"
+📱 **Device:** \`${DEVICE_CODENAME}\`
+🏷 **Build:** \`${BUILD_NAME}\`
+⏱️ **Failed After:** \`${FINAL_MINS}m ${FINAL_SECS}s\`
+
+💻 *Failure Log Snippet:*
+\`\`\`text
+${FAILED_LOG}
+\`\`\`" "all"
     exit 1
 fi
 
-# ── Success ───────────────────────────────────────────────────────────────────
+# ── Handle Success & Links Extraction
 RELEASE_URL=""
 PIXELDRAIN_URL=""
-if [[ -f "/deadzone/output_final/upload_links.txt" ]]; then
+if [ -f "/deadzone/output_final/upload_links.txt" ]; then
     RELEASE_URL=$(grep '^GITHUB_RELEASE_URL=' /deadzone/output_final/upload_links.txt | cut -d= -f2- || true)
     PIXELDRAIN_URL=$(grep '^PIXELDRAIN_URL=' /deadzone/output_final/upload_links.txt | cut -d= -f2- || true)
 fi
 
 LINKS=""
-[[ -n "$PIXELDRAIN_URL" ]] && LINKS+="☁️ [PixelDrain](${PIXELDRAIN_URL})\n"
-[[ -n "$RELEASE_URL"    ]] && LINKS+="🐙 [GitHub Release](${RELEASE_URL})\n"
-[[ -z "$LINKS"          ]] && LINKS="_(check GitHub Actions for links)_"
+[ -n "$PIXELDRAIN_URL" ] && LINKS+="☁️ [Download from PixelDrain](${PIXELDRAIN_URL})\n"
+[ -n "$RELEASE_URL" ] && LINKS+="🐙 [Download from GitHub](${RELEASE_URL})\n"
+[ -z "$LINKS" ] && LINKS="_(Links unavailable, check GitHub Actions)_"
 
-# Edit the live message → final success (this is the LAST edit)
-tg_edit "✅ *DeadZone Build Successful!*
+# Send Final Success Notification
+send_tg "🎉 *DeadZone Build & Upload Successful!*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
-🗂 *Filesystem:* \`${FS_MODE:-erofs}\`
-⏱ *Total Time:* \`${ELAPSED}\`
+⏱️ **Total Time:** \`${FINAL_MINS} mins and ${FINAL_SECS} secs\`
 
-📥 *Download:*
-${LINKS}"
+📱 **Device:** \`${DEVICE_CODENAME}\`
+🏷 **Build Name:** \`${BUILD_NAME}\`
+📦 **Artifact:** \`${OUTPUT_TYPE:-fastboot_zip}\`
+🗂 **Filesystem:** \`${FS_MODE:-erofs}\`
 
-log "Build completed successfully in ${ELAPSED}"
+🔗 **Download Links:**
+${LINKS}" "all"
