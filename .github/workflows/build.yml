@@ -179,12 +179,10 @@ jobs:
             DEVICE_HINT="${{ github.event.inputs.device_codename }}"
           fi
 
-          MACHINE_ID=$(flyctl machine run . \
+          flyctl machine run . \
             --app ${{ secrets.FLY_APP_NAME }} \
             --region ams \
             --vm-cpu-kind performance \
-            --vm-size "performance-${{ github.event.inputs.vm_cpus }}x" \
-            --volume-size-gb 300 \
             --vm-cpus ${{ github.event.inputs.vm_cpus }} \
             --vm-memory ${{ github.event.inputs.vm_memory }} \
             --env ROM_URL="${{ github.event.inputs.rom_url }}" \
@@ -213,12 +211,8 @@ jobs:
             --env GITHUB_SERVER_URL="${{ github.server_url }}" \
             --env RUN_ID="${{ github.run_id }}" \
             --env ACTOR="${{ github.actor }}" \
-            --detach | tee /tmp/fly_output.txt
-
-          # Extract machine ID from output
-          MACHINE_ID=$(grep -o 'machine [a-z0-9]*' /tmp/fly_output.txt | awk '{print $2}' | head -1 || true)
-          echo "Machine ID: $MACHINE_ID"
-          echo "MACHINE_ID=$MACHINE_ID" >> $GITHUB_ENV
+            --detach
+          echo "Fly machine launched successfully"
 
           # Notify Telegram that Fly machine is starting
           MSG="Fly.io machine started! Device: ${{ github.event.inputs.device_codename }} | Build: ${{ github.event.inputs.build_name }}"
