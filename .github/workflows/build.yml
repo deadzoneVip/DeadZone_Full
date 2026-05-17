@@ -4,149 +4,69 @@ on:
   workflow_dispatch:
     inputs:
       rom_url:
-        description: "OTA zip direct download URL"
         required: true
-        default: "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.303.0.WNOCNXM/zircon-ota_full-OS3.0.303.0.WNOCNXM-user-16.0-09c35a83d6.zip"
         type: string
       device_codename:
-        description: "Device codename matching devices/<codename>.conf"
         required: true
-        default: "zircon"
         type: string
       device_hint:
-        description: "Optional Factory v2 device hint; falls back to device_codename"
         required: false
-        default: ""
         type: string
       build_name:
-        description: "Build name"
         required: true
-        default: "DeadZone_v1"
         type: string
       ram_variant:
-        description: "Device RAM variant in GB (32 / 64 / 128)"
         required: false
-        default: "32"
-        type: choice
-        options:
-          - "32"
-          - "64"
-          - "128"
+        type: string
       vm_cpus:
-        description: "Fly.io VM CPUs (matched to RAM: 32GB=8, 64GB=16, 128GB=32)"
         required: true
-        default: "16"
-        type: choice
-        options:
-          - "8"
-          - "16"
-          - "32"
+        type: string
       vm_memory:
-        description: "Fly.io VM Memory in MB (32GB=32768, 64GB=65536, 128GB=131072)"
         required: true
-        default: "65536"
-        type: choice
-        options:
-          - "32768"
-          - "65536"
-          - "131072"
+        type: string
       factory_v2:
-        description: "Use Factory v2 flow for build-related output types"
         required: true
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
+        type: string
       output_type:
-        description: "Output artifact type"
         required: true
-        default: "fastboot_zip"
-        type: choice
-        options:
-          - "detect_only"
-          - "super_zst"
-          - "fastboot_zip"
-          - "full_release"
+        type: string
       fs_mode:
-        description: "Dynamic partition filesystem handling"
         required: true
-        default: "erofs"
-        type: choice
-        options:
-          - "preserve"
-          - "erofs"
+        type: string
       vbmeta_mode:
-        description: "vbmeta patch mode"
         required: true
-        default: "3"
-        type: choice
-        options:
-          - "0"
-          - "1"
-          - "2"
-          - "3"
+        type: string
       patch_level:
-        description: "ROM modification level"
         required: true
-        default: "none"
-        type: choice
-        options:
-          - "none"
-          - "safe"
-          - "full"
+        type: string
       profile:
-        description: "Optional Factory v2 profile name"
         required: false
-        default: ""
         type: string
       variant:
-        description: "Factory v2 profile variant"
         required: false
-        default: "balanced"
-        type: choice
-        options:
-          - "lite"
-          - "balanced"
-          - "performance"
-          - "extreme"
-          - "clean"
-      upload_pixeldrain:
-        description: "Upload final ZIP to PixelDrain"
-        required: true
-        default: true
-        type: boolean
-      notify_telegram:
-        description: "Send Telegram notification"
-        required: true
-        default: true
-        type: boolean
-      create_github_release:
-        description: "Create or update GitHub Release"
-        required: true
-        default: true
-        type: boolean
-      skip_patches:
-        description: "Legacy Phase 1 switch; keep true for first builds"
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-      telegram_msg_id:
-        description: "Telegram Message ID for Live Updates (set by bot automatically)"
-        required: false
-        default: ""
         type: string
-
-permissions:
-  contents: write
+      upload_pixeldrain:
+        required: true
+        type: string
+      notify_telegram:
+        required: true
+        type: string
+      create_github_release:
+        required: true
+        type: string
+      skip_patches:
+        required: true
+        type: string
+      telegram_msg_id:
+        required: false
+        type: string
 
 jobs:
   launch_fly_server:
-    name: "DeadZone — ${{ github.event.inputs.device_codename }} (${{ github.event.inputs.ram_variant }}GB RAM) on Fly.io"
+    name: "Launch DeadZone Build on Fly.io"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -160,33 +80,29 @@ jobs:
       - name: Create GitHub Release placeholder
         run: |
           gh release create "${{ github.run_id }}" \
-            --title "DeadZone ${{ github.event.inputs.build_name }} — ${{ github.event.inputs.device_codename }} (${{ github.event.inputs.ram_variant }}GB)" \
-            --notes "Build in progress on Fly.io — started by ${{ github.actor }}" \
+            --title "DeadZone ${{ github.event.inputs.build_name }} — ${{ github.event.inputs.device_codename }}" \
+            --notes "Build in progress on Fly.io Cloud Server — started by ${{ github.actor }}" \
             || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare build_script for container
-        run: |
-          chmod +x dz_build_script.sh
-
-      - name: Launch DeadZone build on Fly.io
+      - name: Launch Build Server & Detach (OrangeFox Method)
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          echo "Waking up Fly.io and detaching so GitHub Actions can exit..."
+          
           DEVICE_HINT="${{ github.event.inputs.device_hint }}"
           if [[ -z "$DEVICE_HINT" ]]; then
             DEVICE_HINT="${{ github.event.inputs.device_codename }}"
           fi
 
-          # Run in background with nohup so GitHub Actions doesn't wait for it
           nohup flyctl machine run . \
             --app ${{ secrets.FLY_APP_NAME }} \
             --region ams \
             --vm-cpu-kind performance \
             --vm-cpus ${{ github.event.inputs.vm_cpus }} \
             --vm-memory ${{ github.event.inputs.vm_memory }} \
-            --restart no \
             --env ROM_URL="${{ github.event.inputs.rom_url }}" \
             --env DEVICE_CODENAME="${{ github.event.inputs.device_codename }}" \
             --env DEVICE_HINT="$DEVICE_HINT" \
@@ -202,7 +118,7 @@ jobs:
             --env SKIP_PATCHES="${{ github.event.inputs.skip_patches }}" \
             --env UPLOAD_PIXELDRAIN="${{ github.event.inputs.upload_pixeldrain }}" \
             --env CREATE_GITHUB_RELEASE="${{ github.event.inputs.create_github_release }}" \
-            --env NOTIFY_TELEGRAM="false" \
+            --env NOTIFY_TELEGRAM="${{ github.event.inputs.notify_telegram }}" \
             --env TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
             --env TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}" \
             --env TELEGRAM_GROUP_ID="${{ secrets.TELEGRAM_GROUP_ID }}" \
@@ -210,9 +126,11 @@ jobs:
             --env GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
             --env PIXELDRAIN_API_KEY="${{ secrets.PIXELDRAIN_API_KEY }}" \
             --env GITHUB_REPOSITORY="${{ github.repository }}" \
+            --env GITHUB_SERVER_URL="${{ github.server_url }}" \
             --env RUN_ID="${{ github.run_id }}" \
             --env ACTOR="${{ github.actor }}" \
-            > /tmp/fly.log 2>&1 &
-
-          echo "Fly machine launching in background (PID $!)"
-          echo "GitHub Actions job finishing — machine runs independently on Fly.io"
+            --rm > /tmp/fly_launch.log 2>&1 &
+          
+          # Wait 15 seconds to ensure Fly starts, then GitHub safely exits
+          sleep 15
+          echo "Fly.io server is now independent! GitHub Actions will close now."
