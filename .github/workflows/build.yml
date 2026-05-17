@@ -171,55 +171,55 @@ jobs:
           chmod +x dz_build_script.sh
 
       - name: Launch DeadZone build on Fly.io
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           DEVICE_HINT="${{ github.event.inputs.device_hint }}"
           if [[ -z "$DEVICE_HINT" ]]; then
             DEVICE_HINT="${{ github.event.inputs.device_codename }}"
           fi
 
-          flyctl machine run . \
-            --app ${{ secrets.FLY_APP_NAME }} \
-            --region ams \
-            --vm-cpu-kind performance \
-            --vm-cpus ${{ github.event.inputs.vm_cpus }} \
-            --vm-memory ${{ github.event.inputs.vm_memory }} \
-            --env ROM_URL="${{ github.event.inputs.rom_url }}" \
-            --env DEVICE_CODENAME="${{ github.event.inputs.device_codename }}" \
-            --env DEVICE_HINT="$DEVICE_HINT" \
-            --env BUILD_NAME="${{ github.event.inputs.build_name }}" \
-            --env RAM_VARIANT="${{ github.event.inputs.ram_variant }}" \
-            --env OUTPUT_TYPE="${{ github.event.inputs.output_type }}" \
-            --env FS_MODE="${{ github.event.inputs.fs_mode }}" \
-            --env VBMETA_MODE="${{ github.event.inputs.vbmeta_mode }}" \
-            --env PATCH_LEVEL="${{ github.event.inputs.patch_level }}" \
-            --env FACTORY_V2="${{ github.event.inputs.factory_v2 }}" \
-            --env BUILD_PROFILE="${{ github.event.inputs.profile }}" \
-            --env BUILD_VARIANT="${{ github.event.inputs.variant }}" \
-            --env SKIP_PATCHES="${{ github.event.inputs.skip_patches }}" \
-            --env UPLOAD_PIXELDRAIN="${{ github.event.inputs.upload_pixeldrain }}" \
-            --env CREATE_GITHUB_RELEASE="${{ github.event.inputs.create_github_release }}" \
-            --env NOTIFY_TELEGRAM="${{ github.event.inputs.notify_telegram }}" \
-            --env TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-            --env TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            --env TELEGRAM_GROUP_ID="${{ secrets.TELEGRAM_GROUP_ID }}" \
-            --env TELEGRAM_MSG_ID="${{ github.event.inputs.telegram_msg_id }}" \
-            --env GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
-            --env PIXELDRAIN_API_KEY="${{ secrets.PIXELDRAIN_API_KEY }}" \
-            --env GITHUB_REPOSITORY="${{ github.repository }}" \
-            --env GITHUB_SERVER_URL="${{ github.server_url }}" \
-            --env RUN_ID="${{ github.run_id }}" \
-            --env ACTOR="${{ github.actor }}" \
-            --detach
-          echo "Fly machine launched successfully"
+          # Use Fly Machines REST API directly — fire and forget, no waiting
+          curl -s --fail -X POST \
+            "https://api.machines.dev/v1/apps/${{ secrets.FLY_APP_NAME }}/machines" \
+            -H "Authorization: Bearer ${{ secrets.FLY_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "config": {
+                "image": "registry.fly.io/${{ secrets.FLY_APP_NAME }}:latest",
+                "restart": {"policy": "no"},
+                "auto_destroy": true,
+                "vm": {
+                  "cpu_kind": "performance",
+                  "cpus": ${{ github.event.inputs.vm_cpus }},
+                  "memory_mb": ${{ github.event.inputs.vm_memory }}
+                },
+                "env": {
+                  "ROM_URL": "${{ github.event.inputs.rom_url }}",
+                  "DEVICE_CODENAME": "${{ github.event.inputs.device_codename }}",
+                  "DEVICE_HINT": "'"$DEVICE_HINT"'",
+                  "BUILD_NAME": "${{ github.event.inputs.build_name }}",
+                  "RAM_VARIANT": "${{ github.event.inputs.ram_variant }}",
+                  "OUTPUT_TYPE": "${{ github.event.inputs.output_type }}",
+                  "FS_MODE": "${{ github.event.inputs.fs_mode }}",
+                  "VBMETA_MODE": "${{ github.event.inputs.vbmeta_mode }}",
+                  "PATCH_LEVEL": "${{ github.event.inputs.patch_level }}",
+                  "FACTORY_V2": "${{ github.event.inputs.factory_v2 }}",
+                  "BUILD_PROFILE": "${{ github.event.inputs.profile }}",
+                  "BUILD_VARIANT": "${{ github.event.inputs.variant }}",
+                  "SKIP_PATCHES": "${{ github.event.inputs.skip_patches }}",
+                  "UPLOAD_PIXELDRAIN": "${{ github.event.inputs.upload_pixeldrain }}",
+                  "CREATE_GITHUB_RELEASE": "${{ github.event.inputs.create_github_release }}",
+                  "NOTIFY_TELEGRAM": "false",
+                  "TELEGRAM_BOT_TOKEN": "${{ secrets.TELEGRAM_BOT_TOKEN }}",
+                  "TELEGRAM_CHAT_ID": "${{ secrets.TELEGRAM_CHAT_ID }}",
+                  "TELEGRAM_GROUP_ID": "${{ secrets.TELEGRAM_GROUP_ID }}",
+                  "TELEGRAM_MSG_ID": "${{ github.event.inputs.telegram_msg_id }}",
+                  "GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+                  "PIXELDRAIN_API_KEY": "${{ secrets.PIXELDRAIN_API_KEY }}",
+                  "GITHUB_REPOSITORY": "${{ github.repository }}",
+                  "RUN_ID": "${{ github.run_id }}",
+                  "ACTOR": "${{ github.actor }}"
+                }
+              }
+            }'
 
-          # Notify Telegram that Fly machine is starting
-          MSG="Fly.io machine started! Device: ${{ github.event.inputs.device_codename }} | Build: ${{ github.event.inputs.build_name }}"
-          if [[ -n "${{ github.event.inputs.telegram_msg_id }}" ]]; then
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -d "message_id=${{ github.event.inputs.telegram_msg_id }}" \
-              -d "parse_mode=Markdown" \
-              -d "text=*DeadZone Build Status* - Machine starting..." > /dev/null 2>&1 || true
-          fi
+          echo "Fly machine created via REST API — build running independently"
