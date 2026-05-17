@@ -1,126 +1,114 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # DeadZone Build Script — Fly.io Build Server
-# Runs inside the Fly machine triggered by GitHub Actions.
-# Sends Live Telegram status updates (edits a single message like the example).
+# - Runs the full build inside the Fly machine
+# - Streams live logs to Telegram (edits the bot's status message)
+# - Self-destroys the machine when done (so it doesn't cost money)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+
+# ── Self-destroy on exit ──────────────────────────────────────────────────────
+# This is the KEY fix: machine destroys itself when script ends (success or fail)
+# so it doesn't keep running and costing money after GitHub Actions finishes.
+MY_MACHINE_ID="${FLY_MACHINE_ID:-}"
+cleanup() {
+    if [[ -n "$MY_MACHINE_ID" ]]; then
+        log "Self-destroying Fly machine $MY_MACHINE_ID..."
+        flyctl machine destroy "$MY_MACHINE_ID" --force --app "${FLY_APP_NAME:-deadzone-build-server}" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
 
 # ── Telegram helpers ──────────────────────────────────────────────────────────
 send_tg() {
     local MSG="$1"
-    local TARGET="${2:-private}"   # private | all
+    [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]] && return 0
 
-    # Edit the bot's status message (Live updates)
-    if [ -n "${TELEGRAM_MSG_ID:-}" ]; then
-        curl -s --fail \
-          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
-          -d chat_id="${TELEGRAM_CHAT_ID}" \
-          -d message_id="${TELEGRAM_MSG_ID}" \
-          -d text="${MSG}" \
-          -d parse_mode="Markdown" \
-          -d disable_web_page_preview=true > /dev/null 2>&1 || true
+    if [[ -n "${TELEGRAM_MSG_ID:-}" ]]; then
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
+          -d "chat_id=${TELEGRAM_CHAT_ID}" \
+          -d "message_id=${TELEGRAM_MSG_ID}" \
+          -d "parse_mode=Markdown" \
+          -d "disable_web_page_preview=true" \
+          --data-urlencode "text=${MSG}" > /dev/null 2>&1 || true
     else
-        # Fallback: send fresh message if triggered manually
-        curl -s --fail \
-          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-          -d chat_id="${TELEGRAM_CHAT_ID}" \
-          -d text="${MSG}" \
-          -d parse_mode="Markdown" \
-          -d disable_web_page_preview=true > /dev/null 2>&1 || true
-    fi
-
-    # If "all" → also send to group/channel
-    if [ "$TARGET" == "all" ] && [ -n "${TELEGRAM_GROUP_ID:-}" ]; then
-        curl -s --fail \
-          -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-          -d chat_id="${TELEGRAM_GROUP_ID}" \
-          -d text="${MSG}" \
-          -d parse_mode="Markdown" \
-          -d disable_web_page_preview=true > /dev/null 2>&1 || true
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          -d "chat_id=${TELEGRAM_CHAT_ID}" \
+          -d "parse_mode=Markdown" \
+          -d "disable_web_page_preview=true" \
+          --data-urlencode "text=${MSG}" > /dev/null 2>&1 || true
     fi
 }
 
-get_progress_bar() {
-    local pct=$1
-    local filled=$(( pct / 10 ))
-    local empty=$(( 10 - filled ))
-    local bar=""
-    for (( i=0; i<filled; i++ )); do bar+="█"; done
-    for (( i=0; i<empty; i++ )); do bar+="░"; done
-    echo "[$bar]"
+send_tg_new() {
+    # Send a NEW message (for final result)
+    local MSG="$1"
+    [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]] && return 0
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d "chat_id=${TELEGRAM_CHAT_ID}" \
+      -d "parse_mode=Markdown" \
+      -d "disable_web_page_preview=true" \
+      --data-urlencode "text=${MSG}" > /dev/null 2>&1 || true
 }
 
 elapsed_str() {
     local secs=$(( $(date +%s) - BUILD_START ))
-    local m=$(( secs / 60 ))
-    local s=$(( secs % 60 ))
+    local m=$(( secs / 60 )); local s=$(( secs % 60 ))
     printf '%dm %02ds' "$m" "$s"
 }
 
-# ── Validate required env vars ────────────────────────────────────────────────
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+# ── Validate env ──────────────────────────────────────────────────────────────
 for v in ROM_URL DEVICE_CODENAME BUILD_NAME; do
-    [ -n "${!v:-}" ] || { echo "ERROR: $v is not set"; exit 1; }
+    [[ -n "${!v:-}" ]] || { echo "ERROR: $v is not set"; exit 1; }
 done
 
-# ── Initial status ────────────────────────────────────────────────────────────
 BUILD_START=$(date +%s)
-
-send_tg "⚙️ *DeadZone Build Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
-🗂 *Filesystem:* \`${FS_MODE:-erofs}\`
-
-⏳ *Status:* 🔧 Setting up build environment..." "private"
-
-cd /deadzone
-
-# ── Setup tools (payload-dumper, lpmake, etc.) ────────────────────────────────
-send_tg "⚙️ *DeadZone Build Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-
-⏳ *Status:* 🛠 Installing build tools..." "private"
-
-bash core/setup_tools.sh 2>&1 || true
-
-# ── Start the main build ──────────────────────────────────────────────────────
-send_tg "⚙️ *DeadZone Build Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
-🗂 *Filesystem:* \`${FS_MODE:-erofs}\`
-🛡 *VBMeta:* \`${VBMETA_MODE:-3}\`
-
-⏳ *Status:* 📥 Downloading ROM OTA zip..." "private"
-
-# Run the build in background and capture logs
 LOG_FILE="/tmp/dz_build.log"
 rm -f "$LOG_FILE"
 
-export BUILD_NAME="${BUILD_NAME}"
-export STORAGE_VARIANT="${STORAGE_VARIANT:-350}"
-export RAM_VARIANT="${RAM_VARIANT:-32}"
-export FS_MODE="${FS_MODE:-erofs}"
-export VBMETA_MODE="${VBMETA_MODE:-3}"
-export PATCH_LEVEL="${PATCH_LEVEL:-none}"
+log "=== DeadZone Build Script starting ==="
+log "Device: $DEVICE_CODENAME | Build: $BUILD_NAME"
+
+# ── Initial Telegram status ───────────────────────────────────────────────────
+send_tg "⚙️ *DeadZone Build Status*
+━━━━━━━━━━━━━━━━━━━━━━━━
+📱 *Device:* \`${DEVICE_CODENAME}\`
+🏷 *Build:* \`${BUILD_NAME}\`
+📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
+🗂 *Filesystem:* \`${FS_MODE:-erofs}\`
+
+🔧 *Status:* Installing build tools..."
+
+cd /deadzone
+bash core/setup_tools.sh >> "$LOG_FILE" 2>&1 || true
+
+send_tg "⚙️ *DeadZone Build Status*
+━━━━━━━━━━━━━━━━━━━━━━━━
+📱 *Device:* \`${DEVICE_CODENAME}\`
+🏷 *Build:* \`${BUILD_NAME}\`
+📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
+
+📥 *Status:* Downloading ROM OTA zip..."
+
+# ── Export all build env vars ─────────────────────────────────────────────────
+export BUILD_NAME OUTPUT_TYPE FS_MODE VBMETA_MODE PATCH_LEVEL
 export FACTORY_V2="${FACTORY_V2:-false}"
 export BUILD_PROFILE="${BUILD_PROFILE:-}"
 export BUILD_VARIANT="${BUILD_VARIANT:-balanced}"
+export SKIP_PATCHES="${SKIP_PATCHES:-true}"
 export UPLOAD_PIXELDRAIN="${UPLOAD_PIXELDRAIN:-true}"
-export NOTIFY_TELEGRAM="${NOTIFY_TELEGRAM:-false}"   # We handle Telegram ourselves
+export NOTIFY_TELEGRAM="false"   # We handle Telegram ourselves
 export CREATE_GITHUB_RELEASE="${CREATE_GITHUB_RELEASE:-true}"
-export GITHUB_TOKEN="${GITHUB_TOKEN:-${G_TOKEN:-}}"
+export GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 export PIXELDRAIN_API_KEY="${PIXELDRAIN_API_KEY:-}"
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 chmod +x main.sh core/*.sh bin/* 2>/dev/null || true
 
+# ── Run build in background ───────────────────────────────────────────────────
 ./main.sh \
     "${ROM_URL}" \
     "${DEVICE_CODENAME}" \
@@ -129,62 +117,58 @@ chmod +x main.sh core/*.sh bin/* 2>/dev/null || true
     "${FS_MODE:-erofs}" \
     "${VBMETA_MODE:-3}" \
     "${PATCH_LEVEL:-none}" \
-    > "$LOG_FILE" 2>&1 &
+    >> "$LOG_FILE" 2>&1 &
 
 BUILD_PID=$!
-
-# ── Live monitoring loop ──────────────────────────────────────────────────────
 LAST_SECTION=""
 LAST_MSG=""
 
+# ── Live log loop ─────────────────────────────────────────────────────────────
 while kill -0 $BUILD_PID 2>/dev/null; do
-    sleep 8
+    sleep 10
 
-    # Extract current section from logs (lines starting with ===)
-    CURRENT_SECTION=$(grep -o "=== .* ===" "$LOG_FILE" 2>/dev/null | tail -n1 | sed 's/=== //;s/ ===//' || echo "")
+    CURRENT_SECTION=$(grep -o "=== .* ===" "$LOG_FILE" 2>/dev/null | tail -n1 \
+        | sed 's/=== //;s/ ===//' || echo "Running...")
 
-    # Get last few log lines (clean up for Telegram)
-    SNIPPET=$(tail -n 4 "$LOG_FILE" 2>/dev/null \
-        | sed 's/`/"/g' \
+    # Last 5 log lines, cleaned for Telegram
+    SNIPPET=$(tail -n 5 "$LOG_FILE" 2>/dev/null \
+        | sed 's/`/"/g; s/\*//g; s/_//g' \
         | sed 's/[^[:print:]\t]//g' \
-        | cut -c1-70 \
-        | tr '\n' '\n' \
+        | cut -c1-65 \
+        | grep -v "^$" \
+        | head -5 \
         || echo "Processing...")
 
     ELAPSED=$(elapsed_str)
 
-    # Only send update if something changed
-    NEW_MSG="⚙️ *DeadZone Live Build Dashboard*
+    NEW_MSG="⚙️ *DeadZone Live Build*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📱 *Device:* \`${DEVICE_CODENAME}\`
 🏷 *Build:* \`${BUILD_NAME}\`
 ⏱ *Elapsed:* \`${ELAPSED}\`
-📦 *Output:* \`${OUTPUT_TYPE:-fastboot_zip}\`
 
-📊 *Current Stage:* \`${CURRENT_SECTION:-Running...}\`
+📊 *Stage:* \`${CURRENT_SECTION}\`
 
-💻 *Live Terminal:*
+💻 *Live Log:*
 \`\`\`
 ${SNIPPET}
 \`\`\`"
 
-    if [ "$NEW_MSG" != "$LAST_MSG" ]; then
-        send_tg "$NEW_MSG" "private"
+    if [[ "$NEW_MSG" != "$LAST_MSG" ]]; then
+        send_tg "$NEW_MSG"
         LAST_MSG="$NEW_MSG"
     fi
 done
 
-# ── Wait and check exit code ──────────────────────────────────────────────────
+# ── Check result ──────────────────────────────────────────────────────────────
 wait $BUILD_PID
 EXIT_CODE=$?
 ELAPSED=$(elapsed_str)
 
-if [ $EXIT_CODE -ne 0 ]; then
-    FAIL_SNIPPET=$(tail -n 20 "$LOG_FILE" 2>/dev/null \
-        | sed 's/`/"/g' \
-        | sed 's/[^[:print:]\t]//g' \
-        | cut -c1-300 \
-        || echo "Unknown error")
+if [[ $EXIT_CODE -ne 0 ]]; then
+    FAIL_LOG=$(tail -n 15 "$LOG_FILE" 2>/dev/null \
+        | sed 's/`/"/g; s/[^[:print:]\t]//g' \
+        | cut -c1-280 || echo "Unknown error")
 
     send_tg "❌ *DeadZone Build FAILED*
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -192,38 +176,29 @@ if [ $EXIT_CODE -ne 0 ]; then
 🏷 *Build:* \`${BUILD_NAME}\`
 ⏱ *Time:* \`${ELAPSED}\`
 
-💻 *Error Log:*
+💻 *Error:*
 \`\`\`
-${FAIL_SNIPPET}
-\`\`\`" "all"
-
+${FAIL_LOG}
+\`\`\`"
+    log "Build FAILED with exit code $EXIT_CODE"
     exit 1
 fi
 
-# ── Upload & success notification ─────────────────────────────────────────────
-send_tg "⚙️ *DeadZone Build Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${DEVICE_CODENAME}\`
-🏷 *Build:* \`${BUILD_NAME}\`
-⏱ *Build Time:* \`${ELAPSED}\`
-
-⏳ *Status:* 📤 Uploading to GitHub Releases & PixelDrain..." "private"
-
-# Read upload links if they exist
+# ── Upload success ────────────────────────────────────────────────────────────
 RELEASE_URL=""
 PIXELDRAIN_URL=""
-if [ -f "/deadzone/output_final/upload_links.txt" ]; then
+if [[ -f "/deadzone/output_final/upload_links.txt" ]]; then
     RELEASE_URL=$(grep '^GITHUB_RELEASE_URL=' /deadzone/output_final/upload_links.txt | cut -d= -f2- || true)
     PIXELDRAIN_URL=$(grep '^PIXELDRAIN_URL=' /deadzone/output_final/upload_links.txt | cut -d= -f2- || true)
 fi
 
-# Build download links block
 LINKS=""
-[ -n "$PIXELDRAIN_URL" ] && LINKS+="☁️ [PixelDrain](${PIXELDRAIN_URL})\n"
-[ -n "$RELEASE_URL" ] && LINKS+="🐙 [GitHub Release](${RELEASE_URL})\n"
-[ -z "$LINKS" ] && LINKS="_(check GitHub Actions for download links)_"
+[[ -n "$PIXELDRAIN_URL" ]] && LINKS+="☁️ [PixelDrain](${PIXELDRAIN_URL})\n"
+[[ -n "$RELEASE_URL"    ]] && LINKS+="🐙 [GitHub Release](${RELEASE_URL})\n"
+[[ -z "$LINKS"          ]] && LINKS="_(check GitHub Actions for links)_"
 
-send_tg "🎉 *DeadZone Build Successful!*
+# Edit the live status message with final result
+send_tg "✅ *DeadZone Build Successful!*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📱 *Device:* \`${DEVICE_CODENAME}\`
 🏷 *Build:* \`${BUILD_NAME}\`
@@ -232,4 +207,6 @@ send_tg "🎉 *DeadZone Build Successful!*
 ⏱ *Total Time:* \`${ELAPSED}\`
 
 📥 *Download:*
-${LINKS}" "all"
+${LINKS}"
+
+log "Build completed successfully in ${ELAPSED}"

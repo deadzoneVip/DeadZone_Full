@@ -33,23 +33,23 @@ on:
           - "64"
           - "128"
       vm_cpus:
-        description: "Fly.io VM CPUs"
+        description: "Fly.io VM CPUs (matched to RAM: 32GB=8, 64GB=16, 128GB=32)"
         required: true
-        default: "8"
+        default: "16"
         type: choice
         options:
-          - "4"
           - "8"
           - "16"
+          - "32"
       vm_memory:
-        description: "Fly.io VM Memory in MB"
+        description: "Fly.io VM Memory in MB (32GB=32768, 64GB=65536, 128GB=131072)"
         required: true
-        default: "16384"
+        default: "65536"
         type: choice
         options:
-          - "8192"
-          - "16384"
           - "32768"
+          - "65536"
+          - "131072"
       factory_v2:
         description: "Use Factory v2 flow for build-related output types"
         required: true
@@ -168,7 +168,6 @@ jobs:
 
       - name: Prepare build_script for container
         run: |
-          cp dz_build_script.sh dz_build_script.sh
           chmod +x dz_build_script.sh
 
       - name: Launch DeadZone build on Fly.io
@@ -180,10 +179,12 @@ jobs:
             DEVICE_HINT="${{ github.event.inputs.device_codename }}"
           fi
 
-          flyctl machine run . \
+          MACHINE_ID=$(flyctl machine run . \
             --app ${{ secrets.FLY_APP_NAME }} \
             --region ams \
             --vm-cpu-kind performance \
+            --vm-size "performance-${{ github.event.inputs.vm_cpus }}x" \
+            --volume-size-gb 300 \
             --vm-cpus ${{ github.event.inputs.vm_cpus }} \
             --vm-memory ${{ github.event.inputs.vm_memory }} \
             --env ROM_URL="${{ github.event.inputs.rom_url }}" \
@@ -212,4 +213,25 @@ jobs:
             --env GITHUB_SERVER_URL="${{ github.server_url }}" \
             --env RUN_ID="${{ github.run_id }}" \
             --env ACTOR="${{ github.actor }}" \
-            --rm
+            --detach | tee /tmp/fly_output.txt
+
+          # Extract machine ID from output
+          MACHINE_ID=$(grep -o 'machine [a-z0-9]*' /tmp/fly_output.txt | awk '{print $2}' | head -1 || true)
+          echo "Machine ID: $MACHINE_ID"
+          echo "MACHINE_ID=$MACHINE_ID" >> $GITHUB_ENV
+
+          # Notify Telegram that Fly machine is starting
+          if [[ -n "${{ github.event.inputs.telegram_msg_id }}" && -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" && -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
+              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d "message_id=${{ github.event.inputs.telegram_msg_id }}" \
+              -d "parse_mode=Markdown" \
+              --data-urlencode "text=⚙️ *DeadZone Build Status*
+━━━━━━━━━━━━━━━━━━━━━━━━
+📱 *Device:* \`${{ github.event.inputs.device_codename }}\`
+🏷 *Build:* \`${{ github.event.inputs.build_name }}\`
+🖥 *Server:* \`${{ github.event.inputs.vm_cpus }} CPUs / $(( ${{ github.event.inputs.vm_memory }} / 1024 )) GB RAM\`
+
+✅ *Fly.io machine started!*
+⏳ *Status:* Build script initializing..." > /dev/null || true
+          fi
