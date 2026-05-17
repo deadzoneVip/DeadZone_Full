@@ -221,17 +221,11 @@ jobs:
           echo "MACHINE_ID=$MACHINE_ID" >> $GITHUB_ENV
 
           # Notify Telegram that Fly machine is starting
-          if [[ -n "${{ github.event.inputs.telegram_msg_id }}" && -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" && -n "${{ secrets.TELEGRAM_CHAT_ID }}" ]]; then
+          MSG="Fly.io machine started! Device: ${{ github.event.inputs.device_codename }} | Build: ${{ github.event.inputs.build_name }}"
+          if [[ -n "${{ github.event.inputs.telegram_msg_id }}" ]]; then
             curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
               -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
               -d "message_id=${{ github.event.inputs.telegram_msg_id }}" \
               -d "parse_mode=Markdown" \
-              --data-urlencode "text=⚙️ *DeadZone Build Status*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📱 *Device:* \`${{ github.event.inputs.device_codename }}\`
-🏷 *Build:* \`${{ github.event.inputs.build_name }}\`
-🖥 *Server:* \`${{ github.event.inputs.vm_cpus }} CPUs / $(( ${{ github.event.inputs.vm_memory }} / 1024 )) GB RAM\`
-
-✅ *Fly.io machine started!*
-⏳ *Status:* Build script initializing..." > /dev/null || true
+              -d "text=*DeadZone Build Status* - Machine starting..." > /dev/null 2>&1 || true
           fi
